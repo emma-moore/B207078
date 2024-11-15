@@ -6,6 +6,7 @@ date: "2024-11-01"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
 ```
 
 ## R Markdown
@@ -18,12 +19,157 @@ When you click the **Knit** button a document will be generated that includes bo
 summary(cars)
 ```
 
-## Including Plots
+echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
-You can also embed plots, for example:
+## Investigating seasonal trends in prescription of antidepressants in scotland in 2023- loading data
+## Trends in the prescribing of SSRI's across the four seasons – for instance, is there a spike in the winter season (SAD)?
+## seasonal affective disorder (SAD) is a type of depression that comes and goes in a seasonal pattern - SSRIs are the first line of treatment for SAD. I want to analyse prescriptions of SSRIs in Scotland in 2023 to see if there is a spike in the winter season when SAD is prevalent.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+install.packages(c("tidyverse", "janitor", "gt", "here", "lubridate"))
+library(tidyverse)
+library(janitor) 
+library(gt) 
+library(here)
+
+data_jan2023 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/6caa7144-f0e4-4ab0-b9e4-8fa10c8edf1c/download/pitc202301.csv") %>% 
+  clean_names()
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## want to look across seasons - loading the data from every month of 2023
+## download files from jan 2023 to dec 2023 and put them in a folder called consecutive_data and then put them into one dataframe 
+
+```{r}
+install.packages("here")
+library(here)
+install.packages("tidyverse")
+library(tidyverse)
+
+files <- list.files(here("data", "consecutive_data2023"), full.names = TRUE)
+
+consecutive_data2023 <- files %>%
+  map_dfr(~ read_csv(., col_types = cols(DMDCode = col_character())))
+
+
+#specifying a consistent data type as character for the DMDCode column
+consecutive_data2023 <- files %>%
+  map_dfr(~read_csv(., col_types = cols(DMDCode = col_character())))
+
+consecutive_data2023
+```
+
+## filtering the data to only include the coloums HBT, GPPractice, BNFItemDescription, NumberOfPaidItems, PaidQuantity, PaidDateMonth
+```{r} 
+install.packages("dplyr")
+library(dplyr)
+
+consecutive_data <- consecutive_data2023 %>% 
+  select(HBT, GPPractice, BNFItemDescription, NumberOfPaidItems, PaidQuantity, PaidDateMonth)
+```
+
+
+## looking at only SSRI's - CITALOPRAM, FLUOXETINE, PAROXETINE, SERTALINE
+
+```{r}
+SAD_drugs <- c("CITALOPRAM", "FLUOXETINE", "PAROXETINE", "SERTRALINE")
+
+paste(SAD_drugs, collapse = "|")
+
+#filtering
+SAD_data <- consecutive_data %>% 
+  filter(str_detect(BNFItemDescription, paste(SAD_drugs, collapse = "|"))) %>% 
+  mutate(DrugCategory = case_when(
+    str_detect(BNFItemDescription, "CITALOPRAM") ~ "CITALOPRAM",
+    str_detect(BNFItemDescription, "FLUOXETINE") ~ "FLUOXETINE",
+    str_detect(BNFItemDescription, "PAROXETINE") ~ "PAROXETINE",
+    str_detect(BNFItemDescription, "SERTRALINE") ~ "SERTRALINE",
+    TRUE ~ "OTHER"
+  )) %>%
+  group_by(DrugCategory)
+
+SAD_data
+```
+
+## loading health boardnames 
+
+```{r}
+library(janitor)
+
+HB_lookup <- read_csv("https://www.opendata.nhs.scot/dataset/9f942fdb-e59e-44f5-b534-d6e17229cc7b/resource/652ff726-e676-4a20-abda-435b98dd7bdc/download/hb14_hb19.csv") %>% 
+  clean_names()
+
+data_HB <- SAD_data %>% 
+  full_join(HB_lookup, by = c("HBT" = "hb")) %>% 
+  select(hb_name, HBT:PaidDateMonth) 
+
+data_HB
+
+```
+
+
+
+## creating drug category column 
+```{r}
+data_HB <- data_HB %>% 
+  filter(str_detect(BNFItemDescription, paste(SAD_drugs, collapse = "|"))) %>%
+  mutate(DrugCategory = case_when(
+    str_detect(BNFItemDescription, "CITALOPRAM") ~ "CITALOPRAM",
+    str_detect(BNFItemDescription, "FLUOXETINE") ~ "FLUOXETINE",
+    str_detect(BNFItemDescription, "PAROXETINE") ~ "PAROXETINE",
+    str_detect(BNFItemDescription, "SERTRALINE") ~ "SERTRALINE",
+    TRUE ~ "OTHER"
+  )) %>%
+  group_by(DrugCategory)
+
+
+data_HB
+
+```
+
+
+
+
+## tidying the data - renaming months, converting dates into month names 
+
+```{r}
+library(lubridate)
+SAD_datatidy <- data_HB %>%
+   mutate(PaidDateMonth = month(ym(PaidDateMonth), label = TRUE, abbr = FALSE))
+
+SAD_datatidy
+            
+```
+
+
+## does number of prescriptions vary by month
+
+```{r}
+SAD_datatidy %>% 
+  group_by(PaidDateMonth, DrugCategory) %>% 
+  summarise(total_prescriptions = sum(NumberOfPaidItems)) %>% 
+  ggplot(aes(x = PaidDateMonth, y = total_prescriptions)) +
+  geom_col() +
+  labs(title = "Total number of prescriptions by month",
+       x = "Month",
+       y = "Total number of prescriptions")+ 
+  aes(fill = "pink") +
+  facet_wrap(vars(DrugCategory))
+
+
+
+```
+
+
+## table showing the number of prescriptions of each drug by month 
+
+```{r}
+SAD_datatidy %>% 
+  group_by(PaidDateMonth, DrugCategory) %>% 
+  summarise(total_prescriptions = sum(NumberOfPaidItems)) %>% 
+  gt()
+```
+
+
+
+
