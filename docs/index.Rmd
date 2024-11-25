@@ -1,175 +1,270 @@
 ---
 title: "Assessment"
-output: html_document
+output: 
+  html_document: 
+    theme: flatly
+toc: true
+toc_float: true
+theme: flatly
+code_download: true
 date: "2024-11-01"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width=9, fig.height=7, out.width="100%")
 options(repos = c(CRAN = "https://cran.rstudio.com/"))
 ```
 
-## R Markdown
+### **Investigating seasonal patterns in SSRI prescription in Scotland (2023): Insights into Seasonal Affective Disorder (SAD)**
+Seasonal Affective Disorder (SAD) is a type of depression characterised by a seasonal pattern of occurrence, most commonly with symptoms during the autumn and winter months where there are reduced daylight hours (Munir et al., 2024). One treatment for SAD is Selective Serotonin Reuptake Inhibitors (SSRIs). This report aims to investigate seasonal trends in SSRI prescriptions in Scotland in 2023 to see if there's a pattern that aligns with SAD prevalence in the winter months. SSRIs are thought to be most effective if taken at the start of winter before SAD symptoms start and continued until spring (NHS, 2023). We hypothesise that SSRI prescriptions in Scotland follow a seasonal pattern, with an increase during winter months consistent with increased depressive symptoms associated with SAD. 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-## Investigating seasonal trends in prescription of antidepressants in scotland in 2023- loading data
-## Trends in the prescribing of SSRI's across the four seasons – for instance, is there a spike in the winter season (SAD)?
-## seasonal affective disorder (SAD) is a type of depression that comes and goes in a seasonal pattern - SSRIs are the first line of treatment for SAD. I want to analyse prescriptions of SSRIs in Scotland in 2023 to see if there is a spike in the winter season when SAD is prevalent.
-
-```{r}
-install.packages(c("tidyverse", "janitor", "gt", "here", "lubridate"))
-library(tidyverse)
-library(janitor) 
-library(gt) 
-library(here)
-
-data_jan2023 <- read_csv("https://www.opendata.nhs.scot/dataset/84393984-14e9-4b0d-a797-b288db64d088/resource/6caa7144-f0e4-4ab0-b9e4-8fa10c8edf1c/download/pitc202301.csv") %>% 
-  clean_names()
-
-```
-
-## want to look across seasons - loading the data from every month of 2023
-## download files from jan 2023 to dec 2023 and put them in a folder called consecutive_data and then put them into one dataframe 
-
-```{r}
-install.packages("here")
-library(here)
-install.packages("tidyverse")
-library(tidyverse)
-
+#### **Data Wrangling**
+##### **Loading 2023 Scotland prescription data**
+The data used in this analysis was obtained from the NHS Scotland Open Data platform. To look across the seasons, data was loaded from every month of 2023. Files from January 2023 to December 2023 were put in a folder called consecutive_data2023 and then compiled into one data frame.
+```{r, message=FALSE, warning=FALSE}
+library(here) # loading here library for file path finding
+library(tidyverse) #loading tidyverse library for data wrangling
+#lists all files in the consecutive_data2023 folder, located in the data folder.
 files <- list.files(here("data", "consecutive_data2023"), full.names = TRUE)
-
+#map_dfr reads data in each file and combines them into one data frame.
 consecutive_data2023 <- files %>%
-  map_dfr(~ read_csv(., col_types = cols(DMDCode = col_character())))
-
-
-#specifying a consistent data type as character for the DMDCode column
-consecutive_data2023 <- files %>%
-  map_dfr(~read_csv(., col_types = cols(DMDCode = col_character())))
-
-consecutive_data2023
+  map_dfr(~ read_csv(., col_types = cols(DMDCode = col_character()))) #specifying DMDCode as character data type.
 ```
 
-## filtering the data to only include the coloums HBT, GPPractice, BNFItemDescription, NumberOfPaidItems, PaidQuantity, PaidDateMonth
-```{r} 
-install.packages("dplyr")
+##### **Filtering and tidying data**
+Analysis of total number of prescriptions, NumberOfPaidItems, was done instead of total amount of medication prescribed, PaidQuantity, as the number of prescriptions is a more accurate representation of the number of patients being treated. Additionally, NHS Scotland introduced a new system for recording "PaidQuantity" in May 2023 so data from before and after this date is inconsistent and not comparable.
+```{r, message=FALSE, warning=FALSE} 
 library(dplyr)
-
-consecutive_data <- consecutive_data2023 %>% 
-  select(HBT, GPPractice, BNFItemDescription, NumberOfPaidItems, PaidQuantity, PaidDateMonth)
+#select function only include the columns HBT, BNFItemDescription, NumberOfPaidItems, and PaidDateMonth.
+#filter to remove rows where 'BNFItemDescription' is NA.
+consecutive_data2023 <- consecutive_data2023 %>% 
+  select(HBT, BNFItemDescription, NumberOfPaidItems, PaidDateMonth) %>% 
+  filter(!is.na(BNFItemDescription))
+library(lubridate) #loading package for date manipulation.
+#Mutate function was used to change the date format of the "PaidDateMonth" column into month names.
+consecutive_data2023 <- consecutive_data2023 %>% 
+  mutate(PaidDateMonth = month(ym(PaidDateMonth), label = TRUE, abbr = FALSE)) 
 ```
 
+##### **Grouping months by season to create a new column "Season".**
+A new "Season" column was created with the mutate function, grouping months into 4 seasons;
 
-## looking at only SSRI's - CITALOPRAM, FLUOXETINE, PAROXETINE, SERTALINE
+- **Winter**  
+  - December, January, February  
 
-```{r}
+- **Spring**  
+  - March, April, May  
+
+- **Summer**  
+  - June, July, August  
+
+- **Autumn**  
+  - September, October, November 
+  
+This will allow for analysis of SSRI prescriptions across different seasons.
+```{r, message=FALSE, warning=FALSE}
+#Mutate function was used to create a new column "Season" grouping months into 4 seasons.
+consecutive_data2023 <- consecutive_data2023 %>% 
+  mutate(Season = case_when(
+    #if PaidDateMonth is in the list of months, assign the corresponding season.
+    PaidDateMonth %in% c("December", "January", "February") ~ "Winter",
+    PaidDateMonth %in% c("March", "April", "May") ~ "Spring",
+    PaidDateMonth %in% c("June", "July", "August") ~ "Summer",
+    PaidDateMonth %in% c("September", "October", "November") ~ "Autumn"))
+```
+
+##### **Looking at only the SSRI's: CITALOPRAM, FLUOXETINE, PAROXETINE, SERTALINE**
+Filtering the data to look only at 4 different SSRI's prescribed in the UK (NHS, 2023); 
+
+- **Citalopram**, **Fluoxetine**, **Paroxetine**, **Sertaline** 
+
+The mutate function was used to create a new column, "DrugCategory", grouping the data by SSRI type. This will allow for analysis of SSRI prescriptions by drug type.
+```{r, message=FALSE, warning=FALSE}
+#creating a vector of SSRI drug names.
 SAD_drugs <- c("CITALOPRAM", "FLUOXETINE", "PAROXETINE", "SERTRALINE")
-
-paste(SAD_drugs, collapse = "|")
-
-#filtering
-SAD_data <- consecutive_data %>% 
-  filter(str_detect(BNFItemDescription, paste(SAD_drugs, collapse = "|"))) %>% 
+#filtering data to only include rows where 'BNFItemDescription' contains the SSRI drug names.
+SAD_data <- consecutive_data2023 %>% 
+  filter(str_detect(BNFItemDescription, "CITALOPRAM|FLUOXETINE|PAROXETINE|SERTRALINE")) %>% 
+  #creating a new column "DrugCategory" grouping the data by SSRI type.
   mutate(DrugCategory = case_when(
-    str_detect(BNFItemDescription, "CITALOPRAM") ~ "CITALOPRAM",
-    str_detect(BNFItemDescription, "FLUOXETINE") ~ "FLUOXETINE",
-    str_detect(BNFItemDescription, "PAROXETINE") ~ "PAROXETINE",
-    str_detect(BNFItemDescription, "SERTRALINE") ~ "SERTRALINE",
-    TRUE ~ "OTHER"
-  )) %>%
-  group_by(DrugCategory)
-
-SAD_data
+    str_detect(BNFItemDescription, "CITALOPRAM") ~ "CITALOPRAM", str_detect(BNFItemDescription, "FLUOXETINE") ~ "FLUOXETINE", str_detect(BNFItemDescription, "PAROXETINE") ~ "PAROXETINE", str_detect(BNFItemDescription, "SERTRALINE") ~ "SERTRALINE", TRUE ~ "OTHER")) %>%
+  group_by(DrugCategory) #grouping data by DrugCategory.
 ```
 
-## loading health boardnames 
-
-```{r}
+##### **Joining health board names**
+Data was loaded from NHS Scotland Open Data with health board names. This was joined to SSRI prescription data, combining health board digit codes from SAD_data (HBT) and HB_lookup (hb). Joining health board names to the data set will allow for analysis of SSRI prescriptions by health board. 
+```{r, message=FALSE, warning=FALSE}
+#loading library for data cleaning
 library(janitor)
-
+#loading data from NHS Scotland Open Data with health board names.
 HB_lookup <- read_csv("https://www.opendata.nhs.scot/dataset/9f942fdb-e59e-44f5-b534-d6e17229cc7b/resource/652ff726-e676-4a20-abda-435b98dd7bdc/download/hb14_hb19.csv") %>% 
-  clean_names()
-
-data_HB <- SAD_data %>% 
-  full_join(HB_lookup, by = c("HBT" = "hb")) %>% 
-  select(hb_name, HBT:PaidDateMonth) 
-
-data_HB
-
+  clean_names() #makes column names consistent by converting to lowercase and replacing spaces with underscores.
+#joining health board names 'HB_lookup' to the existing SAD_data set.
+SAD_data <- SAD_data %>% 
+  full_join(HB_lookup, by = c("HBT" = "hb")) %>% #merging data with matching health board codes
+  #filtering data to only include columns hb_name, HBT, PaidDateMonth, DrugCategory, NumberOfPaidItems, Season, and BNFItemDescription
+  select(hb_name, HBT, PaidDateMonth, DrugCategory, NumberOfPaidItems, Season, BNFItemDescription) %>% 
+  #renaming columns
+  rename("Drug description" = BNFItemDescription, "Health Board Name" = hb_name, "Health Board Code" = HBT, "Month" = PaidDateMonth, "Total Number of Prescriptions" = NumberOfPaidItems)
 ```
 
-
-
-## creating drug category column 
-```{r}
-data_HB <- data_HB %>% 
-  filter(str_detect(BNFItemDescription, paste(SAD_drugs, collapse = "|"))) %>%
-  mutate(DrugCategory = case_when(
-    str_detect(BNFItemDescription, "CITALOPRAM") ~ "CITALOPRAM",
-    str_detect(BNFItemDescription, "FLUOXETINE") ~ "FLUOXETINE",
-    str_detect(BNFItemDescription, "PAROXETINE") ~ "PAROXETINE",
-    str_detect(BNFItemDescription, "SERTRALINE") ~ "SERTRALINE",
-    TRUE ~ "OTHER"
-  )) %>%
-  group_by(DrugCategory)
-
-
-data_HB
-
+##### **Joining data showing hours of daylight in Scotland 2023**
+SAD is thought to be caused by the decreased daylight period in winter months (Praschak-Rieder and Willeit, 2003). To analyse the relationship between daylight hours and SSRI prescriptions in Scotland, sunlight data from the metoffice website was downloaded. This will allow for analysis of the relationship between daylight hours and SSRI prescriptions.
+```{r, message=FALSE, warning=FALSE}
+#loading data from the metoffice website showing hours of daylight in Scotland 2023.
+sunshine_data <- read.table("https://www.metoffice.gov.uk/pub/data/weather/uk/climate/datasets/Sunshine/date/Scotland.txt", header = TRUE, skip = 5, stringsAsFactors = FALSE, fill = TRUE)
+sunshine_data <- sunshine_data %>%
+  clean_names() %>% #clean column name (lowercase, replace spaces with underscores)
+  filter(year == 2023) %>% #filter data to only include 2023
+  #compiling different columns for every month into one "Month" column.
+  pivot_longer(cols = starts_with("jan"):starts_with("dec"),
+               names_to = "Month",
+               values_to = "SunshineHours") %>%
+  #filtered the data to only include Month and SunshineHours.
+  select(Month, SunshineHours) 
+#turnig month names into the same format as SAD_data allowing the two data sets to be joined by the month column
+sunshine_data <- sunshine_data %>%
+  mutate(Month = case_when(
+    Month == "jan" ~ "January", Month == "feb" ~ "February", Month == "mar" ~ "March", Month == "apr" ~ "April", Month == "may" ~ "May", Month == "jun" ~ "June", Month == "jul" ~ "July", Month == "aug" ~ "August", Month == "sep" ~ "September", Month == "oct" ~ "October", Month == "nov" ~ "November", Month == "dec" ~ "December", TRUE ~ Month))
+#joining the sunshine data to the SAD_data set by month column.
+SAD_data <- SAD_data %>% 
+  left_join(sunshine_data, by = c("Month" = "Month"))
+#filtering out missing values (NA) in SAD_data
+SAD_data <- SAD_data %>%
+ filter(!is.na(Season), !is.na(DrugCategory), !is.na("Total Number of Prescriptions"))
 ```
 
-
-
-
-## tidying the data - renaming months, converting dates into month names 
-
-```{r}
-library(lubridate)
-SAD_datatidy <- data_HB %>%
-   mutate(PaidDateMonth = month(ym(PaidDateMonth), label = TRUE, abbr = FALSE))
-
-SAD_datatidy
-            
-```
-
-
-## does number of prescriptions vary by month
-
-```{r}
-SAD_datatidy %>% 
-  group_by(PaidDateMonth, DrugCategory) %>% 
-  summarise(total_prescriptions = sum(NumberOfPaidItems)) %>% 
-  ggplot(aes(x = PaidDateMonth, y = total_prescriptions)) +
-  geom_col() +
-  labs(title = "Total number of prescriptions by month",
+#### **Plotting Data**
+##### **Line graph to show monthly trends in SSRI Prescriptions in Scotland (2023).** 
+A line graph was created to analyse the monthly trends in SSRI prescriptions in Scotland 2023. In alignment with the pattern of SAD, an expected peak in SSRI prescriptions during the winter months would reflect heightened depressive symptoms. While the graph shows a similar pattern across all 4 SSRIs, there is no clear seasonal trend or winter peak in prescriptions.
+```{r, message=FALSE, warning=FALSE}
+SAD_data %>% 
+  #grouping data by Month and DrugCategory to summarise the total number of prescriptions per month and drug.
+  group_by(Month, DrugCategory) %>% 
+  #summarise total number of prescriptions per month and drug by summing the 'Total Number of Prescriptions' column.
+  summarise(total_prescriptions = sum(`Total Number of Prescriptions`)) %>% 
+  #changing the order of the months to be in chronological order.
+  mutate(Month = factor(Month, 
+                        levels = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"))) %>% 
+  #creating line graph with month on x axis and total prescriptions on y axis, coloured by drug category.
+  ggplot(aes(x = Month, y = total_prescriptions, colour = DrugCategory, group = DrugCategory)) +
+  geom_line(size = 1.2) + #adding line with thickness 1.2
+  labs(title = "Monthly Trends in SSRI Prescriptions in Scotland (2023)",
        x = "Month",
-       y = "Total number of prescriptions")+ 
-  aes(fill = "pink") +
-  facet_wrap(vars(DrugCategory))
-
-
-
+       y = "Total prescriptions")+ #adding labels to the graph
+  theme_light() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7), #rotating x axis labels and changing text size.
+    plot.title = element_text(face = "bold", hjust = 0.2, margin = margin(b = 15)), #making title bold and adjusting margins
+    axis.title.x = element_text(margin = margin(t = 10)), 
+    axis.title.y = element_text(margin = margin(r = 10)),
+    plot.margin = margin(10, 10, 10, 10)
+    ) + #adjusting margins
+  facet_wrap(~DrugCategory, scales = "free") #faceting the graph by drug category to make separate plot for each. 
 ```
 
+##### **Table to show the total number prescriptions of each SSRI by season in Scotalnd (2023).**
+A table was created to analyse the total number of prescriptions of each SSRI by season. The hypothesis was that winter would have the highest number of SSRI prescriptions due to increased depressive symptoms observed in SAD. The season with the highest number of prescriptions of each SSRI is highlighted in bold. The table shows the data follows an unexpected trend. Spring has the highest number of SSRI prescriptions for Citalopram, Fluoxetine, and Paraoxetine, while autumn is the peak for Sertraline. This observation contrasts with what we would expect if the perscriptions were following SAD patterns.
+```{r, message=FALSE, warning=FALSE}
+library(gt)
+SAD_data %>%
+  #grouping data by drug category and season to summarise the total number of prescriptions per drug and season.
+  group_by(DrugCategory, Season) %>% 
+  #summarise total prescriptions per drug and season by summing the 'Total Number of Prescriptions' column.
+  summarise(total_prescriptions = sum(`Total Number of Prescriptions`), .groups = "drop") %>%
+  #creating column to identify the season with the highest number of prescriptions for each drug.
+  mutate(is_max = total_prescriptions == max(total_prescriptions, na.rm = TRUE), .by = DrugCategory) %>%
+  gt() %>% #converting data to table.
+  #renaming columns
+  cols_label(
+    total_prescriptions = "Total Number of Prescriptions", 
+    DrugCategory = "SSRI Type"
+  ) %>%
+  cols_align(align = "center") %>% #aligning text to the center
+  #adding title and subtitle
+  tab_header(
+    title = md("**Seasonal Variation in SSRI Prescriptions in Scotland (2023)**"), subtitle = "Data for Citalopram, Floxetine, Paroxetine, and Sertraline.") %>%
+  #making the text bold in the rows with maximum number of prescriptions for each drug.
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(rows = is_max)
+  ) %>%
+  cols_hide(columns = is_max) %>% #hiding the is_max column
+  #adding colour to the table for each drug category.
+  tab_style(style = cell_fill(color = "lightcyan"), locations = cells_body(rows = DrugCategory == "PAROXETINE")) %>%
+  tab_style(style = cell_fill(color = "lightpink"), locations = cells_body(rows = DrugCategory == "CITALOPRAM")) %>%
+  tab_style(style = cell_fill(color = "lightyellow"),locations = cells_body(rows = DrugCategory == "FLUOXETINE")) %>%
+  tab_style(style = cell_fill(color = "lavender"),locations = cells_body(rows = DrugCategory == "SERTRALINE"))
+```
 
-## table showing the number of prescriptions of each drug by month 
+##### **Scatterplot to show the relationship between daylight hours and SSRI prescriptions in Scotland (2023).**
+Depressive symptoms associated with SAD are thought to be linked to reduced daylight hours (Raza et al., 2023). A scatterplot was created to investigate the relationship between daylight hours and SSRI prescriptions. The hypothesis was that as daylight hours reduce, SSRI prescriptions increase, reflecting the pattern of depressive symptoms observed in SAD. However, the scatterplot does not show this trend. There is no clear correlation between daylight hours and SSRI prescriptions across any of the four SSRIs examined. 
+```{r, message=FALSE, warning=FALSE}
+SAD_data %>% 
+  #creating scatterplot with daylight hours on x axis, total number of prescriptions on y axis, coloured by drug category.
+  ggplot(aes(x = SunshineHours, y = `Total Number of Prescriptions`, colour = DrugCategory)) +
+  geom_jitter() + #adding jitter to the points to avoid overplotting
+  facet_wrap(~DrugCategory, scales = "free") + #faceting the graph by drug category and making scales independant. 
+  #adding a black boxplot to show distribution of data. alpha controls transparency, outlier.shape removes outliers.
+  geom_boxplot(aes(group = SunshineHours),alpha = 0.3, outlier.shape = NA, colour = "black") +
+  #adding title and labels to x and y axis.
+  labs(
+    title = "Relationship between daylight hours and SSRI Prescriptions",
+    x = "Sunshine Hours",
+    y = "Number of Prescriptions"
+  ) +
+  theme_light()+ #light theme for clean look.
+  theme(plot.title = element_text(face = "bold", hjust = 0.2, size = 12)) #making title bold, adjusting font size and positioning.
+```
+
+##### **Looking at prescriptions by health board: are there some regions that have higher prescription rates during different seasons? **
+An interactive bar graph was created to investigate SSRI prescriptions by health board and season. The graph showed no consistent pattern of increased SSRI prescriptions during the winter months across any of the health boards. Similar to the findings in the table that displayed total prescriptions by season, multiple boards showed a slight increase in SSRI prescriptions during the spring. This contrasts with the expected trend, which is a peak in SSRI prescriptions in winter when SAD symptoms are most prevalent. 
 
 ```{r}
-SAD_datatidy %>% 
-  group_by(PaidDateMonth, DrugCategory) %>% 
-  summarise(total_prescriptions = sum(NumberOfPaidItems)) %>% 
-  gt()
+#loading plotly library for creating interactive plots 
+library(plotly)
+#plotting data
+barplot <- SAD_data %>%
+  group_by(`Health Board Name`, Season) %>% #grouping data by health board and season.
+  #summarising total number of prescriptions per health board and season by summing the 'Total Number of Prescriptions' column.
+  summarise(total_prescriptions = sum(`Total Number of Prescriptions`)) %>% 
+  #creating bar graph with health board on x axis, total prescriptions on y axis, coloured by season.
+  ggplot(aes(x = `Health Board Name`, y = total_prescriptions, fill = Season)) +
+  geom_col(position = "dodge") + #dodge psoition seperates bars side by side
+  coord_flip() + #flipping the coordinates to make the graph horizontal
+  labs(
+    title = "SSRI Prescriptions by Health Board and Season",
+    x = "Health Board",
+    y = "Total Prescriptions"
+  ) + #adding title and x and y axis labels to the graph
+  theme_light()+ #light theme for clean look.
+  theme(plot.title = element_text(face = "bold", hjust = "centre", size = 12), axis.text.x = element_text(angle = 45, hjust = 1)) #making title bold, adjusting font size and positioning, rotating x axis labels.
+# Convert to interactive plot
+interactive_barplot <- ggplotly(barplot)
+# Print plot
+interactive_barplot
 ```
 
 
+#### **Conclusion**
+The findings of this study do not support the hypothesis that SSRI prescriptions in Scotland follow a seasonal pattern consistent with Seasonal Affective Disorder (SAD). A slight increase in SSRI prescriptions were observed during the spring months, which contrasts the expected peak in prescriptions during the winter months when SAD symptoms are most prevalent. This suggests that other factors than SAD may primarily influence SSRI prescription trends in Scotland.
 
+SSRIs are widely prescribed for treating depression, which may not be seasonally dependent like SAD. The potentially higher prevalence of non-SAD-related depression and its year round treatment may outweigh any seasonal trends in SSRI prescriptions specifically linked to SAD. Furthermore, SSRIs are generally not the first line of treatment for SAD, instead treatments such as light therapy are recommended. The limited application of SSRI's in SAD, with SSRI's only being prescribed in more extreme cases, may explain the lack of a clear seasonal pattern in SSRI prescriptions.
+
+The slight increase in SSRI prescriptions during the Spring may reflect patients seeking SSRI's after experiencing persistent depressive symptoms during the winter months, when SAD symptoms are most severe. It may take time for patients to seek help and receive a diagnosis and prescription, leading to a delay between symptom onset in winter and SSRI prescription in spring. 
+
+The analysis of daylight data demonstrated seasonal variability, with the shortest daylight hours in winter and longest in summer. This aligns with seasonal patterns of SAD symptoms, however there was no correlation found between decreasing daylight hours in the winter and increasing SSRI prescriptions. Similarly, this suggest other factors may influence SSRI prescription trends in Scotland.
+
+The health board analysis showed variation in SSRI prescription across Scotland, reflecting population size. NHS Greater Glasgow and Clyde had the highest number of SSRI prescriptions and rural areas such as the Shetland islands showed much lower prescription rates. Significant seasonal patterns of prescription were not observed across any of the health boards further supporting the conclusion that SSRI prescriptions in Scotland are not primarily influenced by SAD. 
+
+While daylight hours and health board analysis provide context, neither explained the lack of a clear seasonal pattern in SSRI prescriptions. This highlights the importance of considering a broader spectrum of factors when analysing prescription data to understand multi-factorial influences behind trends. Further research could be done to intergrate other factors such as patient-level data and reason for prescription to provide a better understanding of SSRI prescription trends. 
+
+##### **References**
+Munir, S., Gunturu, S., & Abbas, M. (2024). Seasonal affective disorder. StatPearls - NCBI Bookshelf. https://www.ncbi.nlm.nih.gov/books/NBK568745/
+Praschak-Rieder, N. and Willeit, M. (2003) 'Treatment of seasonal affective disorders,' Dialogues in Clinical Neuroscience, 5(4), pp. 389–398. https://doi.org/10.31887/dcns.2003.5.4/npraschakrieder.
+Raza, A. et al. (2023) 'Daylight during winters and symptoms of depression and sleep problems: a within-individual analysis,' Environment International, 183, p. 108413. https://doi.org/10.1016/j.envint.2023.108413. 
+NHS (2023) Treatment - Seasonal affective disorder (SAD). https://www.nhs.uk/mental-health/conditions/seasonal-affective-disorder-sad/treatment/.
+
+##### **The use of ChatGPT and AI**
+ChatGPT was used to assit in writing code for functions we had not covered in class. 
 
